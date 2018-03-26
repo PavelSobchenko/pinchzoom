@@ -94,6 +94,7 @@ var definePinchZoom = function () {
                 x: 0,
                 y: 0,
             };
+            this.listeners = [];
             this.options = Object.assign({}, this.defaults, options);
             this.setupMarkup();
             this.bindEvents();
@@ -604,15 +605,34 @@ var definePinchZoom = function () {
          */
         bindEvents: function () {
             var self = this;
-            detectGestures(this.container, this);
+            detectGestures(this.container, this, this.listeners);
 
-            window.addEventListener('resize', this.update.bind(this));
+            var windowListener = {
+                el: window,
+                func: this.update.bind(this),
+                event: 'resize'
+            };
+            this.listeners.push(windowListener);
+
+            window.addEventListener('resize', windowListener.func);
             Array.from(this.el.querySelectorAll('img')).forEach(function(imgEl) {
-              imgEl.addEventListener('load', self.update.bind(self));
+                var imgListener = {
+                    el: imgEl,
+                    func: self.update.bind(self),
+                    event: 'load'
+                };
+                self.listeners.push(imgListener);
+                imgEl.addEventListener('load', imgListener.func);
             });
 
             if (this.el.nodeName === 'IMG') {
-              this.el.addEventListener('load', this.update.bind(this));
+                var elListener = {
+                    el: this.el,
+                    func: this.update.bind(this),
+                    event: 'load'
+                };
+                this.listeners.push(elListener);
+                this.el.addEventListener('load', elListener.func);
             }
         },
 
@@ -698,10 +718,16 @@ var definePinchZoom = function () {
          */
         disable: function() {
           this.enabled = false;
+        },
+
+        destroy() {
+            this.listeners.forEach(function (listener) {
+                listener.el.removeEventListener(listener.event, listener.func);
+            });
         }
     };
 
-    var detectGestures = function (el, target) {
+    var detectGestures = function (el, target, eventListener) {
         var interaction = null,
             fingers = 0,
             lastTouchStart = null,
@@ -799,47 +825,65 @@ var definePinchZoom = function () {
             },
             firstMove = true;
 
-        el.addEventListener('touchstart', function (event) {
-            if(target.enabled) {
-                firstMove = true;
-                fingers = event.touches.length;
-                detectDoubleTap(event);
-            }
-        });
-
-        el.addEventListener('touchmove', function (event) {
-            if(target.enabled && !target.isDoubleTab) {
-                if (firstMove) {
-                    updateInteraction(event);
-                    if (interaction) {
-                        cancelEvent(event);
-                    }
-                    startTouches = targetTouches(event.touches);
-                } else {
-                    switch (interaction) {
-                        case 'zoom':
-                            target.handleZoom(event, calculateScale(startTouches, targetTouches(event.touches)));
-                            break;
-                        case 'drag':
-                            target.handleDrag(event);
-                            break;
-                    }
-                    if (interaction) {
-                        cancelEvent(event);
-                        target.update();
-                    }
+        var touchStartListener = {
+            el: el,
+            func: function (event) {
+                if(target.enabled) {
+                    firstMove = true;
+                    fingers = event.touches.length;
+                    detectDoubleTap(event);
                 }
+            },
+            event: 'touchstart'
+        };
+        eventListener.push(touchStartListener);
+        el.addEventListener('touchstart', touchStartListener.func);
 
-                firstMove = false;
-            }
-        });
+        var touchMoveListener = {
+            el: el,
+            func: function (event) {
+                if(target.enabled && !target.isDoubleTab) {
+                    if (firstMove) {
+                        updateInteraction(event);
+                        if (interaction) {
+                            cancelEvent(event);
+                        }
+                        startTouches = targetTouches(event.touches);
+                    } else {
+                        switch (interaction) {
+                            case 'zoom':
+                                target.handleZoom(event, calculateScale(startTouches, targetTouches(event.touches)));
+                                break;
+                            case 'drag':
+                                target.handleDrag(event);
+                                break;
+                        }
+                        if (interaction) {
+                            cancelEvent(event);
+                            target.update();
+                        }
+                    }
 
-        el.addEventListener('touchend', function (event) {
-            if(target.enabled) {
-                fingers = event.touches.length;
-                updateInteraction(event);
-            }
-        });
+                    firstMove = false;
+                }
+            },
+            event: 'touchmove'
+        };
+        eventListener.push(touchMoveListener);
+        el.addEventListener('touchmove', touchMoveListener.func);
+
+        var touchEndListener = {
+            el: el,
+            func: function (event) {
+                if(target.enabled) {
+                    fingers = event.touches.length;
+                    updateInteraction(event);
+                }
+            },
+            event: 'touchend'
+        };
+        eventListener.push(touchEndListener);
+        el.addEventListener('touchend', touchEndListener.func);
     };
 
     return PinchZoom;
